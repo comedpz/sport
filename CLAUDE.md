@@ -58,6 +58,13 @@ et termine chaque tâche par ce qu'il doit faire (ex. « clique sur Create PR pu
 3. Incrémente `VERSION` dans `index.html` (affichée dans Réglages).
 4. Ne committe jamais `node_modules/` (crée un `.gitignore` si besoin).
 
+## Mise en ligne
+
+Travaille sur une branche, committe et pousse toi-même, puis crée la pull request toi-même
+(`gh api repos/comedpz/sport/pulls`, l'API GraphQL de `gh pr` est bloquée ici).
+**Ne merge jamais dans `main` toi-même** : c'est Côme qui clique sur « Merge » pour mettre en ligne.
+Donne-lui le lien de la PR à la fin.
+
 ## Idées déjà évoquées pour la suite
 
 - Choisir la durée de la séance (15 / 20 / 30 min) avec génération automatique.
