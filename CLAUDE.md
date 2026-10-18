@@ -60,10 +60,12 @@ et termine chaque tâche par ce qu'il doit faire (ex. « clique sur Create PR pu
 
 ## Mise en ligne
 
-Travaille sur une branche, committe et pousse toi-même, puis crée la pull request toi-même
-(`gh api repos/comedpz/sport/pulls`, l'API GraphQL de `gh pr` est bloquée ici).
-**Ne merge jamais dans `main` toi-même** : c'est Côme qui clique sur « Merge » pour mettre en ligne.
-Donne-lui le lien de la PR à la fin.
+Côme ne veut pas ouvrir GitHub : tu fais tout toi-même. Travaille sur une branche, committe,
+pousse, crée la pull request puis merge-la (`gh api repos/comedpz/sport/pulls/…` ;
+l'API GraphQL de `gh pr` est bloquée ici).
+**Merger dans `main` = mise en ligne sur le téléphone de sa compagne** : fais-le seulement si
+Côme l'a demandé explicitement pour ce changement (« mets en ligne », « publie »…).
+Sinon, demande-lui confirmation avant de merger.
 
 ## Idées déjà évoquées pour la suite
 
