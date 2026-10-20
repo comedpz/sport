@@ -1,8 +1,10 @@
-# Coach Maison — consignes pour Claude Code
+# CrocoFit (ex-Coach Maison) — consignes pour Claude Code
 
 ## Le projet
 
 Petite app web de sport à la maison, façon Freeletics simplifié, faite par Côme pour sa femme.
+Nom affiché : **CrocoFit** (icône : crocodile vert sur fond orange). Les identifiants internes gardent
+l'ancien nom (`coachMaison.v1`, `app:'coach-maison'`) : ne jamais les renommer.
 Elle l'utilise sur son téléphone, ajoutée à l'écran d'accueil, via GitHub Pages
 (branche `main`, dossier racine). Merger dans `main` = mise en ligne en ~1 min.
 

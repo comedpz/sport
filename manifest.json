@@ -1,6 +1,6 @@
 {
-  "name": "Coach Maison",
-  "short_name": "Coach",
+  "name": "CrocoFit",
+  "short_name": "CrocoFit",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
