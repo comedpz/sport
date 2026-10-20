@@ -7,11 +7,11 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Coach">
+<meta name="apple-mobile-web-app-title" content="CrocoFit">
 <link rel="apple-touch-icon" href="icon.png">
 <link rel="icon" type="image/png" href="icon.png">
 <link rel="manifest" href="manifest.json">
-<title>Coach Maison</title>
+<title>CrocoFit</title>
 <style>
 :root{
   --bg:#111316;--card:#1a1d22;--card2:#23272e;--line:#2e333b;
@@ -188,14 +188,15 @@ h2{font-size:18px;font-weight:700;margin:26px 0 12px}
 <div id="modal" hidden></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <input type="file" id="importFile" accept="application/json,.json" hidden>
-<noscript>Active JavaScript pour utiliser Coach Maison.</noscript>
+<noscript>Active JavaScript pour utiliser CrocoFit.</noscript>
 <script>
 'use strict';
 /* =========================================================
-   Coach Maison — v2.0
+   CrocoFit (ex-Coach Maison) — v2.1
+   Les identifiants internes gardent l'ancien nom (clé coachMaison.v1, sauvegardes app:'coach-maison') : ne pas les changer.
    Tout est dans ce fichier. Les données restent sur le téléphone (localStorage).
    ========================================================= */
-const VERSION = '2.0';
+const VERSION = '2.1';
 const STORE_KEY = 'coachMaison.v1';
 const LIMITS = { reps:{min:5,max:30,step:1}, time:{min:15,max:60,step:5} };
 const MIN_WEIGHT = 1, MAX_WEIGHT = 3;
@@ -836,11 +837,11 @@ function saveSession(){
    ========================================================= */
 async function exportData(){
   const payload = JSON.stringify({app:'coach-maison', version:1, exportedAt:new Date().toISOString(), data:state}, null, 2);
-  const name = 'coach-maison-sauvegarde-' + new Date().toISOString().slice(0,10) + '.json';
+  const name = 'crocofit-sauvegarde-' + new Date().toISOString().slice(0,10) + '.json';
   try {
     const file = new File([payload], name, {type:'application/json'});
     if (navigator.canShare && navigator.share && navigator.canShare({files:[file]})){
-      await navigator.share({files:[file], title:'Sauvegarde Coach Maison'});
+      await navigator.share({files:[file], title:'Sauvegarde CrocoFit'});
       toast('Sauvegarde prête'); return;
     }
   } catch(e){ if (e && e.name === 'AbortError') return; }
@@ -916,7 +917,7 @@ function renderHome(){
       <span class="go" aria-hidden="true">›</span></button>`;
   }).join('');
   return `
-  <header class="top"><div><div class="eyebrow">${esc(cap(fmtDate(new Date(now()).toISOString(), {weekday:'long', day:'numeric', month:'long'})))}</div><h1>Coach Maison</h1></div></header>
+  <header class="top"><div><div class="eyebrow">${esc(cap(fmtDate(new Date(now()).toISOString(), {weekday:'long', day:'numeric', month:'long'})))}</div><h1>CrocoFit</h1></div></header>
   ${storageWarn()}
   <section class="card week">
     <div class="mot"><div class="lv"><div class="small muted">Niveau ${lv.lvl}</div><b data-test="level">${esc(lv.name)}</b>${levelBar(lv)}</div>
@@ -1188,7 +1189,7 @@ function renderSettings(){
     <button class="btn" data-action="import" data-test="import">Restaurer une sauvegarde</button>
     <button class="btn danger" data-action="reset" data-test="reset">Tout effacer</button>
   </div>
-  <p class="small muted" style="text-align:center;margin-top:24px">Coach Maison v${VERSION}</p>`;
+  <p class="small muted" style="text-align:center;margin-top:24px">CrocoFit v${VERSION}</p>`;
 }
 
 function render(){

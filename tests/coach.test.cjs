@@ -1,4 +1,4 @@
-// Série de tests Coach Maison — node:test + Playwright (Chromium, viewport iPhone)
+// Série de tests CrocoFit (ex-Coach Maison) — node:test + Playwright (Chromium, viewport iPhone)
 // Lancer : npm test
 const { test, before, after, describe } = require('node:test');
 const assert = require('node:assert/strict');
@@ -670,7 +670,7 @@ describe('5. Sauvegarde, restauration, réglages', () => {
       const i = await fetch(document.querySelector('link[rel=apple-touch-icon]').href);
       return { name: m.name, display: m.display, icon: i.status };
     });
-    assert.deepEqual(r, { name: 'Coach Maison', display: 'standalone', icon: 200 });
+    assert.deepEqual(r, { name: 'CrocoFit', display: 'standalone', icon: 200 });
     await ctx.close();
   });
 });
