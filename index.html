@@ -288,10 +288,10 @@ const WARMUPS = {
 const RECIPES = {
   jambes:        {name:'Jambes & fessiers', kind:'muscu', warm:'bas', format:'circuit', rounds:3, slots:['bas','bas','bas','bas','bas']},
   haut_abdos:    {name:'Haut du corps & abdos', kind:'muscu', warm:'haut', format:'circuit', rounds:3, slots:['haut','haut','haut','abdos','abdos']},
-  fessiers_pyr:  {name:'Fessiers en pyramide', kind:'muscu', warm:'bas', format:'pyramid', factors:[.6,.8,1,.8,.6], rests:[5,10,15,10,5], slots:['bas','bas','bas','bas','bas']},
+  fessiers_pyr:  {name:'Fessiers en pyramide', kind:'muscu', warm:'bas', format:'pyramid', factors:[.6,.8,1,.8,.6], rests:[10,10,15,10,10], slots:['bas','bas','bas','bas','bas']},
   abdos:         {name:'Abdos & gainage', kind:'muscu', warm:'abdos', format:'circuit', rounds:3, slots:['abdos','abdos','abdos','abdos','abdos','abdos']},
   full:          {name:'Corps entier', kind:'muscu', warm:'full', format:'circuit', rounds:3, slots:['bas','haut','bas','haut','abdos']},
-  bras:          {name:'Bras & épaules', kind:'muscu', warm:'haut', format:'pyramid', factors:[.6,.8,1,.8,.6], rests:[5,10,15,10,5], slots:['haut','haut','haut','haut','haut']},
+  bras:          {name:'Bras & épaules', kind:'muscu', warm:'haut', format:'pyramid', factors:[.6,.8,1,.8,.6], rests:[10,10,15,10,10], slots:['haut','haut','haut','haut','haut']},
   hiit:          {name:'HIIT corps entier', kind:'cardio', warm:'cardio', format:'circuit', rounds:4, slots:['cardio','cardio','bas','cardio','cardio','bas']},
   tabata:        {name:'Tabata', kind:'cardio', warm:'cardio', format:'tabata', blocks:[['cardio','cardio'],['cardio','bas'],['cardio','abdos'],['cardio','cardio']]},
   cardio_abdos:  {name:'Cardio & abdos', kind:'cardio', warm:'abdos', format:'circuit', rounds:3, slots:['cardio','abdos','cardio','abdos','cardio','abdos']},
@@ -323,13 +323,14 @@ const REST = {
 };
 /* Forme du jour : effort et pauses */
 const FEEL = {
-  tired:  {label:'Fatiguée', effort:0.85, rest:1.25, hint:'Séance allégée de 15 %, pauses un peu plus longues.'},
-  normal: {label:'Normale', effort:1, rest:1, hint:'La séance prévue.'},
-  great:  {label:'En forme', effort:1.1, rest:1, hint:'Séance renforcée de 10 %.'}
+  tired:  {label:'Fatiguée', effort:0.85, rest:5, hint:'Séance allégée (−15 %, un bloc de moins en tabata), pauses un peu plus longues.'},
+  normal: {label:'Normale', effort:1, rest:0, hint:'La séance prévue.'},
+  great:  {label:'En forme', effort:1.1, rest:0, hint:'Séance renforcée (+10 %, 25 s d’effort en tabata).'}
 };
 /* Niveaux : points cumulés */
-const LEVELS = [[0,'Débutante'],[50,'Motivée'],[120,'Régulière'],[220,'Déterminée'],[350,'Sportive'],
-  [520,'Endurante'],[740,'Athlète'],[1000,'Guerrière'],[1300,'Inarrêtable'],[1700,'Légende']];
+const LEVELS = [[0,'Débutante'],[50,'Motivée'],[150,'Régulière'],[300,'Déterminée'],[500,'Sportive'],[800,'Endurante'],
+  [1200,'Tonique'],[1700,'Athlète'],[2300,'Guerrière'],[3000,'Inarrêtable'],[3800,'Championne'],[4800,'Légende'],[6000,'Mythique']];
+const LEVEL_STEP = 1500;   // après Mythique : un niveau tous les 1 500 points
 const GOAL_BONUS = 20, FULL_BONUS = 10;
 const TARGET_SEC = 20*60;   // durée visée d'une séance
 
@@ -366,6 +367,7 @@ function adjust(def, cur, rating){
   if (dir < 0 && t < L.min){
     if (st.target <= L.min && st.weight && st.weight > MIN_WEIGHT){   // au min -> haltère plus léger
       res.weight = st.weight - 1; res.change = 'weight-down';
+      res.target = Math.min(L.max, roundTarget(def.type, st.target * st.weight / res.weight));   // même effort qu'avant
       return res;
     }
     t = L.min;
@@ -412,7 +414,7 @@ function restFor(r, w, s, n, ctx, fe){
     dur = Math.min(base + more, Math.max(base, R.max));
     if (w.brk === 'round') dur = Math.max(dur, r.format === 'pyramid' ? r.rests[w.lvl] + 10 : R.round);
   }
-  if (fe.rest !== 1 && dur > REST.warm) dur = Math.round(dur * fe.rest / 5) * 5;
+  if (fe.rest && dur >= 15) dur += fe.rest;   // fatiguée : +5 s sur les vraies pauses
   return {kind:'rest', dur, prevExId:s.exId, roundBreak:w.brk === 'round' || w.brk === 'block',
     warm:w.brk === 'warm' && !!n.warm, quick:w.brk === 'tabata', weightChange, anklesOn};
 }
@@ -423,13 +425,15 @@ function buildPlan(sess, st, feel){
   const work = [];
   if (!sess.noWarm) WARMUPS[r.warm].forEach(([id, sec]) => work.push({step:stepFor(id, st, {round:0, target:sec}), brk:'warm'}));
   if (r.format === 'tabata'){
-    for (let b = 0; b < sess.items.length/2; b++)
+    const nb = sess.items.length/2 - (fe.effort < 1 ? 1 : 0), sec = fe.effort > 1 ? 25 : 20;
+    for (let b = 0; b < nb; b++)
       for (let k = 0; k < 8; k++)
-        work.push({step:stepFor(sess.items[2*b + k%2], st, {round:b+1, pos:k+1, type:'time', target:20, sides:false, fixed:true}), brk:k === 7 ? 'block' : 'tabata'});
+        work.push({step:stepFor(sess.items[2*b + k%2], st, {round:b+1, pos:k+1, of:nb, type:'time', target:sec, sides:false, fixed:true}), brk:k === 7 ? 'block' : 'tabata'});
   } else {
     const factors = r.format === 'pyramid' ? r.factors : Array(sess.rounds || r.rounds).fill(1);
+    const peak = factors.indexOf(Math.max(...factors));
     factors.forEach((fa, i) => sess.items.forEach((id, j) =>
-      work.push({step:stepFor(id, st, {round:i+1, pos:j+1}, fa * fe.effort), brk:j === sess.items.length - 1 ? 'round' : 'between', lvl:i})));
+      work.push({step:stepFor(id, st, {round:i+1, pos:j+1, early:i < peak}, fa * fe.effort), brk:j === sess.items.length - 1 ? 'round' : 'between', lvl:i})));
   }
   const steps = [{kind:'gear'}, {kind:'ready', dur:5}];
   const ctx = {held:null, ankles:false};
@@ -475,24 +479,37 @@ function makeSession(rid, st, seed, used){
     taken.add(c[0]);
     return c[0];
   });
-  if (!cardio)   // muscu : debout puis au sol, du plus léger au plus lourd -> moins de temps perdu entre les exercices
-    items.sort((a, b) => !!EXERCISES[a].floor - !!EXERCISES[b].floor || (st.ex[a].weight || 0) - (st.ex[b].weight || 0));
-  if (used) items.forEach(id => used.set(id, 1e15 + used.size));
-  const options = r.format === 'circuit' ? [2, 3, 4, 5].map(n => ({rid, items, rounds:n}))
-    : r.format === 'pyramid' ? items.map((_, i) => ({rid, items:items.slice(0, i + 1)})).filter(s => s.items.length >= 3) : [{rid, items}];
-  const gap = s => Math.abs(estimateSec(s, st) - TARGET_SEC);
-  return options.reduce((a, b) => gap(b) < gap(a) ? b : a);
+  // muscu : debout puis au sol, du plus léger au plus lourd -> moins de temps perdu entre les exercices
+  const order = list => cardio ? list : list.slice().sort((a, b) => !!EXERCISES[a].floor - !!EXERCISES[b].floor || (st.ex[a].weight || 0) - (st.ex[b].weight || 0));
+  const options = [];
+  if (r.format === 'circuit')
+    for (let k = items.length; k >= Math.max(3, items.length - 2); k--) for (let n = 2; n <= 6; n++) options.push({rid, items:order(items.slice(0, k)), rounds:n});
+  else if (r.format === 'pyramid')
+    for (let k = items.length; k >= 2; k--) options.push({rid, items:order(items.slice(0, k))});
+  else options.push({rid, items});
+  const gap = s => Math.abs(estimateSec(s, st) - TARGET_SEC) + (r.format === 'circuit' ? (items.length - s.items.length) * 60 : 0);
+  const best = options.reduce((a, b) => gap(b) < gap(a) ? b : a);
+  if (used) best.items.forEach(id => used.set(id, 1e15 + used.size));
+  return best;
 }
 function ensurePlan(){
   const ws = weekStart();
-  if (state.plan && state.plan.week === ws) return state.plan;
+  if (state.plan && Math.abs(state.plan.week - ws) < 2*DAY) return state.plan;   // même semaine (même en voyage)
   const cw = cycleWeek(ws), used = new Map();
   state.plan = {week:ws, cycle:cw, sessions:CYCLE[cw].map(rid => makeSession(rid, state, 'w' + ws + rid, used))};
   save();
   return state.plan;
 }
 function kindOf(h){ return h.kind || (RECIPES[h.sessionId] && RECIPES[h.sessionId].kind) || null; }
-function doneSlots(plan){ return new Set(state.history.filter(h => h.week === plan.week && Number.isInteger(h.slot)).map(h => h.slot)); }
+function doneSlots(plan){
+  const done = new Set(state.history.filter(h => h.week === plan.week && Number.isInteger(h.slot)).map(h => h.slot));
+  state.history.forEach(h => {   // séances de la semaine enregistrées sans case (avant la v2) : reconnues par leur type
+    if (h.week != null || h.extra || h.mini || weekStartOf(Date.parse(h.date)) !== weekStart()) return;
+    const i = plan.sessions.findIndex((s, k) => s.rid === h.sessionId && !done.has(k));
+    if (i >= 0) done.add(i);
+  });
+  return done;
+}
 function recommendedSlot(plan, done){
   const last = state.history.find(h => !h.mini), lastKind = last ? kindOf(last) : null;
   const todo = plan.sessions.map((s, i) => i).filter(i => !done.has(i));
@@ -504,7 +521,7 @@ function chooseExtraRecipe(themeId){
   const inPlan = new Set((state.plan ? state.plan.sessions : []).map(s => s.rid));
   const lastDone = rid => { const h = state.history.find(x => x.sessionId === rid); return h ? new Date(h.date).getTime() : 0; };
   const seed = String(now());
-  return theme.r.slice().sort((a, b) => lastDone(a) - lastDone(b) || inPlan.has(a) - inPlan.has(b) || hashStr(a + seed) - hashStr(b + seed))[0];
+  return theme.r.slice().sort((a, b) => inPlan.has(a) - inPlan.has(b) || lastDone(a) - lastDone(b) || hashStr(a + seed) - hashStr(b + seed))[0];
 }
 
 /* =========================================================
@@ -525,7 +542,7 @@ function levelOf(p){
   let i = 0;
   while (i + 1 < LEVELS.length && p >= LEVELS[i+1][0]) i++;
   let lvl = i + 1, from = LEVELS[i][0], to = LEVELS[i+1] ? LEVELS[i+1][0] : null;
-  if (to === null){ const k = Math.floor((p - from)/500); lvl += k; from += k*500; to = from + 500; }   // après Légende : un niveau tous les 500 points
+  if (to === null){ const k = Math.floor((p - from)/LEVEL_STEP); lvl += k; from += k*LEVEL_STEP; to = from + LEVEL_STEP; }
   return {lvl, name:LEVELS[i][1], from, to, p};
 }
 /* Indice de forme : 100 au départ, + 1 point par 10 % de progrès sur un exercice (objectif × haltère) */
@@ -536,7 +553,7 @@ function formeIndex(st){
     const d = EXERCISES[id];
     sum += vol(d, s) / vol(d, {target:d.start, weight:d.weight}) - 1;
   }
-  return Math.round(100 + sum * 10);
+  return Math.max(50, Math.round(100 + sum * 10));
 }
 function formeSeries(){
   const byWeek = new Map();
@@ -554,7 +571,7 @@ function streak(){
 /* =========================================================
    Stockage
    ========================================================= */
-let storageOK = true;
+let storageOK = true, readOnly = false;   // readOnly : on ne peut pas (ou ne doit pas) écrire
 function defaultState(){
   const ex = {};
   for (const [id, d] of Object.entries(EXERCISES)) if (!d.warm) ex[id] = {target:d.start, weight:d.weight ?? null, okStreak:0, last:0};
@@ -575,7 +592,7 @@ function normalize(raw){
       };
     }
   }
-  if (Array.isArray(raw.history)) out.history = raw.history.filter(h => h && typeof h === 'object' && h.date);
+  if (Array.isArray(raw.history)) out.history = raw.history.filter(h => h && typeof h === 'object' && h.date && Number.isFinite(Date.parse(h.date)));
   const p = raw.plan;
   if (p && Number.isFinite(p.week) && Array.isArray(p.sessions) && p.sessions.length &&
       p.sessions.every(s => s && RECIPES[s.rid] && Array.isArray(s.items) && s.items.length && s.items.every(id => EXERCISES[id] && !EXERCISES[id].warm)))
@@ -584,14 +601,21 @@ function normalize(raw){
   return out;
 }
 function load(){
-  try {
-    const k = '__cm_test__'; localStorage.setItem(k, '1'); localStorage.removeItem(k);
-    const s = localStorage.getItem(STORE_KEY);
-    return normalize(s ? JSON.parse(s) : null);
-  } catch(e){ storageOK = false; return defaultState(); }
+  let raw = null;
+  try { raw = localStorage.getItem(STORE_KEY); }
+  catch(e){ storageOK = false; readOnly = true; return defaultState(); }          // stockage bloqué (navigation privée)
+  try { const k = '__cm_test__'; localStorage.setItem(k, '1'); localStorage.removeItem(k); }
+  catch(e){ storageOK = false; readOnly = true; }                                  // lecture possible mais écriture impossible (mémoire pleine)
+  if (!raw) return defaultState();
+  try { return normalize(JSON.parse(raw)); }
+  catch(e){                                                                        // données illisibles : on les met de côté avant toute écriture
+    try { localStorage.setItem(STORE_KEY + '.illisible', raw); } catch(err){ storageOK = false; readOnly = true; }
+    return defaultState();
+  }
 }
 function save(){
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); return true; }
+  if (readOnly) return false;
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); storageOK = true; return true; }
   catch(e){ storageOK = false; return false; }
 }
 let state = load();
@@ -627,7 +651,8 @@ function say(text){
     s.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'fr-FR'; u.rate = 1.05;
-    const v = s.getVoices().find(v => /^fr/i.test(v.lang)); if (v) u.voice = v;
+    const vs = s.getVoices().filter(v => /^fr[-_]FR$/i.test(v.lang));
+    const v = vs.find(v => v.localService && v.default) || vs.find(v => v.localService) || vs[0]; if (v) u.voice = v;
     s.speak(u);
   } catch(e){}
 }
@@ -643,7 +668,7 @@ async function keepAwake(on){
   } catch(e){ wakeLock = null; }
 }
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && run && !run.finished) keepAwake(true);
+  if (document.visibilityState === 'visible' && run && !run.finished){ keepAwake(true); unlockAudio(); }
 });
 
 /* =========================================================
@@ -700,7 +725,7 @@ function gearItems(g){
 }
 function gearSpeech(g){
   const parts = [];
-  if (g.weights.length) parts.push('haltères de ' + listFr(g.weights.map(String)) + ' kilos');
+  if (g.weights.length) parts.push('tes haltères de ' + listFr(g.weights.map(String)) + ' kilos');
   if (g.ankles) parts.push('les chevillères');
   if (g.mat) parts.push('ton tapis');
   return parts.length ? 'Pour cette séance, prépare : ' + listFr(parts) + '.' : 'Pas de matériel aujourd’hui.';
@@ -713,10 +738,11 @@ function restNote(s){
 }
 function announce(s){
   if (s.kind === 'gear') say(gearSpeech(gearOf(run.plan)));
-  else if (s.kind === 'ready') say('Prépare-toi. Premier exercice : ' + spoken(s.next));
+  else if (s.kind === 'ready') say('Prépare-toi : ' + EXERCISES[s.next.exId].name);
   else if (s.kind === 'work'){ beep(1046, 200); buzz(150); say(spoken(s)); }
   else if (s.warm) return;
   else if (s.quick){ if (s.weightChange || s.anklesOn) say('Ensuite : ' + EXERCISES[s.next.exId].name + restNote(s)); }
+  else if (s.dur < 10) say('Ensuite : ' + EXERCISES[s.next.exId].name + restNote(s));
   else say(s.next ? 'Repos. Ensuite : ' + EXERCISES[s.next.exId].name + restNote(s) : 'Repos');
 }
 function tick(){
@@ -747,6 +773,7 @@ function pauseRun(){
 function resumeRun(){
   if (!run.paused) return;
   run.pausedTotal += now() - run.pausedAt;
+  run.stepStart += now() - run.pausedAt;
   if (run.endAt !== null) run.endAt = now() + run.remaining;
   run.paused = false;
 }
@@ -755,7 +782,7 @@ function finish(){
   run.finished = true; run.endedAt = now();
   clearInterval(timerId); timerId = null;
   keepAwake(false);
-  beep(1318, 350); buzz([200, 100, 200]); say('Séance terminée. Bravo !');
+  beep(1318, 350); buzz([200, 100, 200]); say(doneCount() ? 'Séance terminée. Bravo !' : 'Séance arrêtée.');
   view = 'end';
   render();
 }
@@ -780,21 +807,21 @@ function saveSession(){
   for (const id of ratedIds()){
     const r = run.ratings[id]; if (!r) continue;
     const before = state.ex[id];
-    const after = adjust(EXERCISES[id], before, r);
+    const after = adjust(EXERCISES[id], before, (run.feel === 'tired' && r === 'easy') || (run.feel === 'great' && r === 'hard') ? 'ok' : r);
     state.ex[id] = {target:after.target, weight:after.weight, okStreak:after.okStreak, last:before.last};
     if (after.change) changes.push({id, from:before.target, to:after.target, wFrom:before.weight, wTo:after.weight, change:after.change});
   }
   run.done.forEach(i => { const s = run.plan[i]; if (!s.warm && state.ex[s.exId]) state.ex[s.exId].last = run.startedAt; });
-  const sess = run.session, r = run.recipe;
+  const sess = run.session, r = run.recipe, inPlan = Number.isInteger(sess.slot) && Math.abs(sess.week - weekStartOf(run.startedAt)) < 2*DAY;   // commencée dans la semaine du programme
   const total = run.plan.filter(s => s.kind === 'work' && !s.warm).length;
   state.history.unshift({
     id:String(run.startedAt), date:new Date(run.startedAt).toISOString(), sessionId:sess.rid,
-    name:r.name, kind:r.kind, mini:false, extra:!!sess.extra,
-    week:Number.isInteger(sess.slot) ? sess.week : null, slot:Number.isInteger(sess.slot) ? sess.slot : null,
+    name:r.name, kind:r.kind, mini:false, extra:!!sess.extra || !inPlan,
+    week:inPlan ? sess.week : null, slot:inPlan ? sess.slot : null,
     feel:run.feel, durationSec:elapsedSec(), done:doneCount(), total,
     ratings:Object.assign({}, run.ratings), changes, forme:formeIndex(state)
   });
-  if (state.history.length > 500) state.history.length = 500;
+  if (state.history.length > 1500) state.history.length = 1500;
   const ok = save();
   const lvBefore = levelOf(ptsBefore), lvAfter = levelOf(totalPoints());
   run.saved = true; run.changes = changes;
@@ -872,7 +899,7 @@ function tabbar(){
   const t = (id, label) => `<button class="tab ${tab === id ? 'on' : ''}" data-action="tab" data-id="${id}" data-test="tab-${id}">${label}</button>`;
   return `<nav class="tabbar"><div class="inner">${t('home','Séances')}${t('progress','Progrès')}${t('settings','Réglages')}</div></nav>`;
 }
-function storageWarn(){ return storageOK ? '' : `<div class="warn" data-test="storage-warn">Ce navigateur bloque l’enregistrement (navigation privée ?). Les séances ne seront pas sauvegardées.</div>`; }
+function storageWarn(){ return storageOK ? '' : `<div class="warn" data-test="storage-warn">Ce téléphone refuse l’enregistrement (navigation privée ou mémoire pleine ?). Les séances ne seront pas sauvegardées.</div>`; }
 function levelBar(lv){ return `<div class="lvlbar"><i style="width:${Math.round(100*(lv.p - lv.from)/(lv.to - lv.from))}%"></i></div>`; }
 
 function renderHome(){
@@ -964,7 +991,7 @@ function nextCard(n, label, rest){
 function stepLabel(s){
   const r = run.recipe, n = run.session.items.length;
   if (s.warm) return 'Échauffement';
-  if (r.format === 'tabata') return `Bloc ${s.round}/${n/2} · ${s.pos}/8`;
+  if (r.format === 'tabata') return `Bloc ${s.round}/${s.of} · ${s.pos}/8`;
   if (r.format === 'pyramid') return `Palier ${s.round}/${r.factors.length} · Exercice ${s.pos}/${n}`;
   const rounds = run.session.rounds || r.rounds;
   return (rounds > 1 ? `Tour ${s.round}/${rounds} · ` : '') + `Exercice ${s.pos}/${n}`;
@@ -993,7 +1020,7 @@ function renderWorkout(){
   if (s.kind === 'work') sub = stepLabel(s);
   else if (s.kind === 'rest' && s.warm) sub = 'Échauffement';
   else if (s.kind === 'rest' && s.roundBreak) sub = run.recipe.format === 'tabata' ? 'Fin du bloc' : run.recipe.format === 'pyramid' ? 'Fin du palier' : 'Fin du tour';
-  else if (s.kind === 'rest') sub = `${workSteps.filter(x => p.indexOf(x) < run.idx).length}/${workSteps.length} exercices faits`;
+  else if (s.kind === 'rest') sub = `${doneCount()}/${workSteps.length} exercices faits`;
 
   let phase, color, body, controls;
   const pauseBtn = `<button class="btn" data-action="pause" data-test="pause">${run.paused ? 'Reprendre' : 'Pause'}</button>`;
@@ -1021,7 +1048,7 @@ function renderWorkout(){
   } else {
     phase = s.warm ? 'On enchaîne' : s.roundBreak ? 'Grosse pause' : 'Repos'; color = 'var(--rest)';
     const prevStep = p[run.idx - 1];
-    const rate = (prevStep.warm || prevStep.fixed || !run.done.has(run.idx - 1)) ? '' : `<div class="rate-box" data-test="rate-box"><div class="rate-q">${esc(EXERCISES[s.prevExId].name)}, c’était comment ?</div>${ratingRow(s.prevExId)}</div>`;
+    const rate = (prevStep.warm || prevStep.fixed || prevStep.early || !run.done.has(run.idx - 1)) ? '' : `<div class="rate-box" data-test="rate-box"><div class="rate-q">${esc(EXERCISES[s.prevExId].name)}, c’était comment ?</div>${ratingRow(s.prevExId)}</div>`;
     body = `<div class="ring" style="margin-top:4px">${ringSvg(color)}<div class="mid"><div class="big" id="tMain"></div><div class="unit">secondes</div>${pausedLbl}</div></div>
       ${rate}${nextCard(s.next, 'Ensuite', s)}`;
     controls = `<button class="btn" data-action="addrest" data-test="addrest">+10 s</button><button class="btn rest" data-action="skip" data-test="skip">Passer le repos</button>`;
@@ -1055,7 +1082,7 @@ function changeText(c){
   const d = EXERCISES[c.id];
   const st = {exId:c.id, type:d.type, sides:!!d.sides};
   if (c.change === 'weight-up') return `<span class="up">↑</span> ${esc(d.name)} : passe à <b>${c.wTo} kg</b> (${c.to} ${unitWord(st, true)})`;
-  if (c.change === 'weight-down') return `<span class="down">↓</span> ${esc(d.name)} : passe à <b>${c.wTo} kg</b>`;
+  if (c.change === 'weight-down') return `<span class="down">↓</span> ${esc(d.name)} : passe à <b>${c.wTo} kg</b> (${c.to} ${unitWord(st, true)})`;
   return `<span class="${c.change}">${c.change === 'up' ? '↑' : '↓'}</span> ${esc(d.name)} : ${c.from} → <b>${c.to} ${unitWord(st, true)}</b>`;
 }
 function renderEnd(){
@@ -1202,7 +1229,12 @@ const actions = {
   },
   extra(){ modal('Une séance en plus ?', 'Choisis ce que tu veux travailler, je prépare la séance.',
     EXTRA_THEMES.map(t => ({label:t.label, action:'extra-theme', id:t.id})).concat([{label:'Annuler', action:'modal-close', cls:'ghost'}])); },
-  'extra-theme'(d){ closeModal(); const rid = chooseExtraRecipe(d.id); openPreview(Object.assign(makeSession(rid, state, String(now())), {extra:true})); },
+  'extra-theme'(d){
+    closeModal();
+    const plan = ensurePlan(), done = doneSlots(plan), used = new Map();   // exercices encore prévus cette semaine : en dernier choix
+    plan.sessions.forEach((s, i) => { if (!done.has(i)) s.items.forEach(id => used.set(id, 1e15)); });
+    openPreview(Object.assign(makeSession(chooseExtraRecipe(d.id), state, String(now()), used), {extra:true}));
+  },
   home(){ run = null; view = 'home'; tab = 'home'; render(); window.scrollTo(0, 0); },
   start(){ startSession(previewSess); },
   go(){ advance(true); },
@@ -1239,9 +1271,16 @@ const actions = {
   'reset-confirm'(){ state = defaultState(); save(); closeModal(); toast('Données effacées'); render(); },
   'modal-close'(){ closeModal(); pendingImport = null; }
 };
+const STEP_ACTIONS = new Set(['go', 'skip', 'done']);
+let lastStepTap = 0;
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-action]');
   if (!b) return;
+  if (run) unlockAudio();   // iPhone : relance le son s'il a été coupé (appel, Siri, autre app)
+  if (STEP_ACTIONS.has(b.dataset.action)){   // double tap : le 2e tap tomberait sur le bouton de l'écran suivant
+    if (now() - lastStepTap < 400) return;
+    lastStepTap = now();
+  }
   const fn = actions[b.dataset.action];
   if (fn) fn(b.dataset, b);
 });

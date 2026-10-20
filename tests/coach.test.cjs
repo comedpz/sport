@@ -50,21 +50,23 @@ const says = page => page.evaluate(() => CM.events.filter(e => e.type === 'say')
 const tMain = async page => { await page.evaluate(() => CM.refresh()); return page.locator('#tMain').innerText(); };   // chrono à jour (l'écran se rafraîchit toutes les 200 ms)
 async function remainingMs(page) { return page.evaluate(() => { const r = CM.getRun(); return r.endAt === null ? 0 : r.endAt - Date.now(); }); }
 async function finishStep(page) { await page.clock.runFor((await remainingMs(page)) + 250); }
+// Bouton d'étape (Go / Passer / Terminé / J'ai tout) : l'app ignore un 2e tap à moins de 0,4 s (double tap)
+async function tap(page, sel) { await page.clock.runFor(450); await page.click(sel); }
 // Séance du programme : accueil -> aperçu -> écran matériel
 async function startSession(page, id) { await page.click(`[data-test=session-${id}]`); await page.click('[data-test=start]'); }
 // Séance sur mesure (tests) : aperçu -> écran matériel -> « J'ai tout » -> compte à rebours
 async function startCustom(page, sess) {
   await page.evaluate(s => CM.openPreview(s), sess);
   await page.click('[data-test=start]');
-  await page.click('[data-test=gear-go]');
+  await tap(page, '[data-test=gear-go]');
 }
 async function runToEnd(page, onRest) {
   for (let i = 0; i < 400; i++) {
     if (await page.locator('[data-test=save], [data-test=home]').count()) return;
     const ph = await phase(page);
-    if (ph === 'phase-gear') { await page.click('[data-test=gear-go]'); continue; }
+    if (ph === 'phase-gear') { await tap(page, '[data-test=gear-go]'); continue; }
     if (ph === 'phase-rest' && onRest) await onRest(page);
-    if (ph === 'phase-work' && await page.locator('[data-test=done]').count()) { await page.click('[data-test=done]'); continue; }
+    if (ph === 'phase-work' && await page.locator('[data-test=done]').count()) { await tap(page, '[data-test=done]'); continue; }
     await finishStep(page);
   }
   throw new Error('La séance ne se termine pas');
@@ -129,9 +131,11 @@ describe('1. Logique : ajustement, programme, pauses', () => {
     const d = await adj('planche', { target: 60, okStreak: 0 }, 'easy');
     assert.equal(d.target, 60);
   });
-  test('Plancher 5 rép. / 15 s puis haltère plus léger', async () => {
+  test('Plancher 5 rép. / 15 s puis haltère plus léger, avec plus de répétitions (même effort)', async () => {
     const a = await adj('squat', { target: 5, weight: 2, okStreak: 0 }, 'hard');
-    assert.deepEqual([a.target, a.weight, a.change], [5, 1, 'weight-down']);
+    assert.deepEqual([a.target, a.weight, a.change], [10, 1, 'weight-down']);
+    const b = await adj('sumo', { target: 5, weight: 3, okStreak: 0 }, 'hard');
+    assert.deepEqual([b.target, b.weight], [8, 2]);
     assert.equal((await adj('crunch', { target: 5, okStreak: 0 }, 'hard')).target, 5);
     assert.equal((await adj('planche', { target: 15, okStreak: 0 }, 'hard')).target, 15);
     assert.equal((await adj('planche', { target: 20, okStreak: 0 }, 'hard')).target, 15);
@@ -197,8 +201,9 @@ describe('1. Logique : ajustement, programme, pauses', () => {
     const w = p.filter(s => s.kind === 'work');
     assert.deepEqual(w.filter(s => s.exId === 'squat').map(s => s.target), [9, 12, 15, 12, 9]);
     const rests = p.filter(s => s.kind === 'rest' && s.prevExId);
-    assert.deepEqual(rests.filter(s => !s.roundBreak).map(s => s.dur), [10, 15, 20, 15, 10]);
-    assert.deepEqual(rests.filter(s => s.roundBreak).map(s => s.dur), [15, 20, 25, 20]);
+    assert.deepEqual(rests.filter(s => !s.roundBreak).map(s => s.dur), [15, 15, 20, 15, 15]);
+    assert.deepEqual(rests.filter(s => s.roundBreak).map(s => s.dur), [20, 20, 25, 20]);
+    assert.deepEqual(w.map(s => !!s.early), [true, true, true, true, false, false, false, false, false, false], 'ressenti demandé à partir du palier le plus dur');
   });
   test('Tabata : 4 blocs de 8 × 20 s, 10 s de repos, 45 s entre les blocs, au chrono', async () => {
     const p = await page.evaluate(() => CM.buildPlan(CM.makeSession('tabata', CM.getState(), 'x'), CM.getState()));
@@ -229,13 +234,11 @@ describe('1. Logique : ajustement, programme, pauses', () => {
       const f0 = CM.formeIndex(st);
       st.ex.squat.target = 18; const f1 = CM.formeIndex(st);
       st.ex.squat = { target: 20, weight: 3, okStreak: 0, last: 1 }; const f2 = CM.formeIndex(st);
-      return { f0, f1, f2, l0: CM.levelOf(0), l1: CM.levelOf(130), l2: CM.levelOf(1700), l3: CM.levelOf(2250) };
+      for (const id of Object.keys(st.ex)) st.ex[id].target = 1; const f3 = CM.formeIndex(st);
+      return { f0, f1, f2, f3, l: [0, 49, 50, 160, 4800, 6000, 7600].map(p => CM.levelOf(p)) };
     });
-    assert.deepEqual([r.f0, r.f1, r.f2], [100, 102, 110]);
-    assert.deepEqual([r.l0.lvl, r.l0.name], [1, 'Débutante']);
-    assert.deepEqual([r.l1.lvl, r.l1.name], [3, 'Régulière']);
-    assert.deepEqual([r.l2.lvl, r.l2.name], [10, 'Légende']);
-    assert.equal(r.l3.lvl, 11);
+    assert.deepEqual([r.f0, r.f1, r.f2, r.f3], [100, 102, 110, 50], 'indice : jamais sous 50');
+    assert.deepEqual(r.l.map(l => l.lvl + ' ' + l.name), ['1 Débutante', '1 Débutante', '2 Motivée', '3 Régulière', '12 Légende', '13 Mythique', '14 Mythique']);
   });
 });
 
@@ -271,14 +274,14 @@ describe('2. Parcours complet', () => {
     assert.equal(await phase(page), 'phase-gear');
     const g = await page.locator('[data-test=gear]').innerText();
     assert.match(g, /Haltères 2 kg/); assert.match(g, /Tapis de sol/);
-    assert.ok((await says(page)).includes('Pour cette séance, prépare : haltères de 2 kilos et ton tapis.'), (await says(page)).join(' | '));
+    assert.ok((await says(page)).includes('Pour cette séance, prépare : tes haltères de 2 kilos et ton tapis.'), (await says(page)).join(' | '));
     await page.clock.runFor(30000);
     assert.equal(await phase(page), 'phase-gear', 'l’écran matériel attend qu’on soit prête');
     await page.screenshot({ path: path.join(SHOTS, '3-materiel.png') });
     await noHorizontalScroll(page); await bigButtons(page);
-    await page.click('[data-test=gear-go]');
+    await tap(page, '[data-test=gear-go]');
     assert.equal(await phase(page), 'phase-ready');
-    assert.ok((await says(page)).includes('Prépare-toi. Premier exercice : Jumping jacks, 30 secondes'));
+    assert.ok((await says(page)).includes('Prépare-toi : Jumping jacks'));
   });
   test('Exercice en temps : le chrono descend et passe tout seul au repos', async () => {
     await finishStep(page);
@@ -316,10 +319,10 @@ describe('2. Parcours complet', () => {
     await page.clock.runFor(42000);
     assert.equal(await phase(page), 'phase-work', 'un exercice en répétitions ne doit pas passer tout seul');
     await page.screenshot({ path: path.join(SHOTS, '6-exercice-reps.png') });
-    await page.click('[data-test=done]');
+    await tap(page, '[data-test=done]');
     assert.equal(await phase(page), 'phase-rest');
     await page.click('[data-test=rate-squat-ok]');
-    await page.click('[data-test=skip]');
+    await tap(page, '[data-test=skip]');
     assert.equal(await page.locator('[data-test=ex-name]').innerText(), 'Gainage planche');
     await finishStep(page);
   });
@@ -365,8 +368,8 @@ describe('3. Contrôles pendant la séance', () => {
   test('Pause : le chrono s’arrête puis repart', async () => {
     const { page, ctx, errors } = await open();
     await startSession(page, 'jambes');
-    await page.click('[data-test=gear-go]');
-    await page.click('[data-test=skip]');          // Go !
+    await tap(page, '[data-test=gear-go]');
+    await tap(page, '[data-test=skip]');          // Go !
     assert.equal(await page.locator('[data-test=ex-name]').innerText(), 'Rotations chevilles et hanches');
     await page.clock.runFor(5300);
     assert.equal(await tMain(page), '25');
@@ -386,7 +389,7 @@ describe('3. Contrôles pendant la séance', () => {
     await page.click('[data-test=feel-tired]');
     assert.equal(await page.locator('[data-test=feel-tired]').getAttribute('aria-pressed'), 'true');
     assert.equal(await page.evaluate(() => CM.getRun().plan.find(s => s.exId === 'squat').target), 13);
-    await page.click('[data-test=gear-go]');
+    await tap(page, '[data-test=gear-go]');
     await runToEnd(page);
     await page.click('[data-test=save]');
     assert.equal((await state(page)).history[0].feel, 'tired');
@@ -396,13 +399,13 @@ describe('3. Contrôles pendant la séance', () => {
   test('Passer : un exercice passé n’est pas compté comme fait', async () => {
     const { page, ctx, errors } = await open();
     await startCustom(page, MINI);
-    await page.click('[data-test=skip]');          // Go !
-    await page.click('[data-test=skip]');          // passe Jumping jacks
+    await tap(page, '[data-test=skip]');          // Go !
+    await tap(page, '[data-test=skip]');          // passe Jumping jacks
     assert.equal(await phase(page), 'phase-rest');
-    await page.click('[data-test=skip]');          // passe le repos
-    await page.click('[data-test=done]');          // squats faits
-    await page.click('[data-test=skip]');          // repos
-    await page.click('[data-test=skip]');          // passe planche
+    await tap(page, '[data-test=skip]');          // passe le repos
+    await tap(page, '[data-test=done]');          // squats faits
+    await tap(page, '[data-test=skip]');          // repos
+    await tap(page, '[data-test=skip]');          // passe planche
     assert.equal(await page.locator('[data-test=end-count]').innerText(), '1/3');
     assert.equal(await page.locator('.end-ex').count(), 1, 'seuls les exercices faits sont à noter');
     assert.deepEqual(errors, []); await ctx.close();
@@ -410,7 +413,7 @@ describe('3. Contrôles pendant la séance', () => {
   test('Gainage latéral : signal « change de côté » à mi-temps', async () => {
     const { page, ctx, errors } = await open();
     await startCustom(page, { rid: 'abdos', items: ['gainage_lat'], rounds: 1, noWarm: true });
-    await page.click('[data-test=skip]');          // Go !
+    await tap(page, '[data-test=skip]');          // Go !
     assert.equal(await page.locator('[data-test=side]').innerText(), 'Côté 1/2');
     assert.equal(await tMain(page), '20');
     await page.clock.runFor(20500);
@@ -424,7 +427,7 @@ describe('3. Contrôles pendant la séance', () => {
   test('Arrêter → « Terminer et enregistrer » garde ce qui est fait', async () => {
     const { page, ctx, errors } = await open();
     await startCustom(page, MINI);
-    await page.click('[data-test=skip]');
+    await tap(page, '[data-test=skip]');
     await finishStep(page);                         // jacks fait
     await page.click('[data-test=quit]');
     await page.screenshot({ path: path.join(SHOTS, '11-arreter.png') });
@@ -437,7 +440,7 @@ describe('3. Contrôles pendant la séance', () => {
   test('Arrêter → « Abandonner » ne sauvegarde rien', async () => {
     const { page, ctx, errors } = await open();
     await startCustom(page, MINI);
-    await page.click('[data-test=skip]');
+    await tap(page, '[data-test=skip]');
     await finishStep(page);
     await page.click('[data-test=quit]');
     await page.click('[data-test=m-quit-abandon]');
@@ -448,7 +451,7 @@ describe('3. Contrôles pendant la séance', () => {
   test('Arrêter → « Continuer » reprend là où on était', async () => {
     const { page, ctx, errors } = await open();
     await startCustom(page, MINI);
-    await page.click('[data-test=skip]');
+    await tap(page, '[data-test=skip]');
     await page.clock.runFor(10000);
     await page.click('[data-test=quit]');
     await page.clock.runFor(20000);
@@ -525,7 +528,7 @@ describe('4. Vraies séances, semaine, motivation', () => {
     const history = [...weekHistory('2026-10-12T07:00:00+02:00', 3, 106), ...weekHistory('2026-10-05T07:00:00+02:00', 3, 102)];
     const { page, ctx, errors } = await open({ seed: { version: 1, ex: {}, history, settings: { sound: true, voice: true } } });
     assert.equal(await page.locator('[data-test=streak]').innerText(), '🔥 2');
-    assert.equal(await page.locator('[data-test=level]').innerText(), 'Déterminée');   // 6 × 30 + 2 × 20 = 220 points
+    assert.equal(await page.locator('[data-test=level]').innerText(), 'Régulière');   // 6 × 30 + 2 × 20 = 220 points
     await page.click('[data-test=tab-progress]');
     assert.equal(await page.locator('[data-test=spark] circle').count(), 2);
     await page.screenshot({ path: path.join(SHOTS, '13-progres-courbe.png'), fullPage: true });
@@ -669,5 +672,125 @@ describe('5. Sauvegarde, restauration, réglages', () => {
     });
     assert.deepEqual(r, { name: 'Coach Maison', display: 'standalone', icon: 200 });
     await ctx.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('6. Cas difficiles (relecture du code, simulations)', () => {
+  test('Données illisibles au démarrage : mises de côté avant toute écriture', async () => {
+    const raw = '{"version":1,"ex":{"squat":{"target":24';
+    const { page, ctx, errors } = await open({ initScript: r => { if (!sessionStorage.getItem('s')) { localStorage.setItem('coachMaison.v1', r); sessionStorage.setItem('s', '1'); } } });
+    await ctx.close();
+    const t = await open({ initScript: new Function(`if (!sessionStorage.getItem('s')) { localStorage.setItem('coachMaison.v1', ${JSON.stringify(raw)}); sessionStorage.setItem('s', '1'); }`) });
+    assert.equal(await t.page.evaluate(() => localStorage.getItem('coachMaison.v1.illisible')), raw);
+    assert.equal(await t.page.locator('.session').count(), 3);
+    assert.deepEqual(t.errors, []); await t.ctx.close();
+  });
+  test('Mémoire pleine : ses données sont lues, jamais écrasées', async () => {
+    const data = JSON.stringify({ version: 1, ex: { squat: { target: 24, weight: 3, okStreak: 0 } }, history: [{ id: '1', date: '2026-10-18T10:00:00+02:00', sessionId: 'jambes', name: 'Jambes & fessiers', durationSec: 1200, done: 15, total: 15 }], settings: { sound: true, voice: true } });
+    const { page, ctx, errors } = await open({ initScript: new Function(`localStorage.setItem('coachMaison.v1', ${JSON.stringify(data)});
+      Storage.prototype.setItem = function () { throw new DOMException('plein', 'QuotaExceededError'); };`) });
+    assert.equal((await state(page)).ex.squat.target, 24);
+    assert.equal(await page.locator('[data-test=storage-warn]').count(), 1);
+    await startCustom(page, MINI);
+    await runToEnd(page);
+    await page.click('[data-test=save]');
+    assert.equal(await page.evaluate(() => localStorage.getItem('coachMaison.v1')), data, 'les données d’origine sont intactes');
+    assert.deepEqual(errors, []); await ctx.close();
+  });
+  test('Mise à jour en milieu de semaine : la séance déjà faite avant est cochée', async () => {
+    const seed = { version: 1, ex: {}, history: [{ id: '1', date: '2026-10-19T10:00:00+02:00', sessionId: 'jambes', name: 'Jambes & fessiers', mini: false, durationSec: 1200, done: 15, total: 15 }], settings: { sound: true, voice: true } };
+    const { page, ctx, errors } = await open({ seed, time: new Date('2026-10-20T18:00:00+02:00') });
+    assert.equal(await page.locator('[data-test=week]').innerText(), '1 / 3 séances');
+    assert.match(await page.locator('[data-test=session-jambes]').innerText(), /Faite ✓/);
+    assert.equal(await page.locator('[data-test=session-hiit] [data-test=reco]').count(), 1);
+    assert.deepEqual(errors, []); await ctx.close();
+  });
+  test('Chrono des répétitions : ne saute pas après une pause', async () => {
+    const { page, ctx, errors } = await open();
+    await startCustom(page, { ...MINI, items: ['squat'] });
+    await tap(page, '[data-test=skip]');            // Go !
+    await page.clock.runFor(10200);
+    assert.equal(await tMain(page), '⏱ 0:10');
+    await page.click('[data-test=pause]');
+    await page.clock.runFor(60000);
+    await page.click('[data-test=pause]');
+    assert.equal(await tMain(page), '⏱ 0:10');
+    assert.deepEqual(errors, []); await ctx.close();
+  });
+  test('Double tap : le 2e tap ne fait pas passer l’exercice suivant', async () => {
+    const { page, ctx, errors } = await open();
+    await startCustom(page, MINI);
+    await tap(page, '[data-test=skip]');            // Go !
+    await finishStep(page);                         // jumping jacks faits -> repos
+    await tap(page, '[data-test=skip]');            // « Passer le repos »…
+    await page.click('[data-test=skip]');           // … et un 2e tap involontaire sur « Passer »
+    assert.equal(await phase(page), 'phase-work');
+    assert.equal(await page.locator('[data-test=ex-name]').innerText(), 'Squats');
+    assert.deepEqual(errors, []); await ctx.close();
+  });
+  test('Forme du jour en tabata : un bloc de moins si fatiguée, 25 s si en forme', async () => {
+    const { page, ctx } = await open();
+    const r = await page.evaluate(() => { const st = CM.getState(), s = CM.makeSession('tabata', st, 'x');
+      const w = f => CM.buildPlan(s, st, f).filter(x => x.kind === 'work' && x.fixed);
+      return { n: w('normal').length, t: w('tired').length, g: [...new Set(w('great').map(x => x.dur))], est: ['tired', 'normal', 'great'].map(f => CM.estimateSec(s, st, f)) }; });
+    assert.deepEqual([r.n, r.t, r.g], [32, 24, [25]]);
+    assert.ok(r.est[0] < r.est[1] && r.est[1] < r.est[2], 'fatiguée = plus court, en forme = plus long');
+    await ctx.close();
+  });
+  test('Un jour « fatiguée », « trop facile » ne fait pas monter l’objectif normal', async () => {
+    const { page, ctx, errors } = await open();
+    await page.evaluate(s => CM.openPreview(s), MINI);
+    await page.click('[data-test=start]');
+    await page.click('[data-test=feel-tired]');
+    await tap(page, '[data-test=gear-go]');
+    await runToEnd(page);
+    await page.click('[data-test=rate-squat-easy]');
+    await page.click('[data-test=save]');
+    const s = await state(page);
+    assert.deepEqual([s.ex.squat.target, s.ex.squat.okStreak], [15, 1], 'compté comme « OK »');
+    assert.deepEqual(errors, []); await ctx.close();
+  });
+  test('Historique avec une date invalide : ignoré, l’onglet Progrès s’ouvre', async () => {
+    const seed = { version: 1, ex: {}, history: [{ id: '2', date: 'pas une date', sessionId: 'jambes', name: 'X', durationSec: 10, done: 1, total: 1 },
+      { id: '1', date: '2026-10-18T10:00:00+02:00', sessionId: 'hiit', name: 'HIIT', durationSec: 1200, done: 24, total: 24, forme: 101 }], settings: { sound: true, voice: true } };
+    const { page, ctx, errors } = await open({ seed });
+    await page.click('[data-test=tab-progress]');
+    assert.equal(await page.locator('[data-test=hist]').count(), 1);
+    assert.deepEqual(errors, []); await ctx.close();
+  });
+  test('Séance en plus : évite les séances encore prévues cette semaine', async () => {
+    const { page, ctx, errors } = await open();
+    for (const theme of ['cardio', 'haut', 'surprise']) {
+      await page.click('[data-test=extra]');
+      await page.click(`[data-test=m-extra-theme-${theme}]`);
+      const name = await page.locator('h1').innerText();
+      assert.ok(!['HIIT corps entier', 'Haut du corps & abdos', 'Jambes & fessiers'].includes(name), `${theme} -> ${name}`);
+      await page.click('[data-action=home]');
+    }
+    assert.deepEqual(errors, []); await ctx.close();
+  });
+  test('Très forte (tous les objectifs au max) : séances toujours autour de 20 min', async () => {
+    const { page, ctx } = await open();
+    const r = await page.evaluate(() => { const st = JSON.parse(JSON.stringify(CM.getState()));
+      for (const [id, e] of Object.entries(st.ex)) { e.target = CM.EXERCISES[id].type === 'time' ? 60 : 30; if (e.weight) e.weight = 3; }
+      const out = []; for (const rid of Object.keys(CM.RECIPES)) for (const seed of 'abcd') out.push([rid, CM.estimateSec(CM.makeSession(rid, st, seed), st) / 60]); return out; });
+    for (const [rid, min] of r) assert.ok(min >= 16 && min <= 24, `${rid} : ${min.toFixed(1)} min`);
+    await ctx.close();
+  });
+  test('Séance ouverte dimanche soir mais lancée lundi : comptée en plus, pas dans le nouveau programme', async () => {
+    const { page, ctx, errors } = await open({ time: new Date('2026-10-25T23:58:00+01:00') });
+    await page.evaluate(() => { const p = CM.getState().plan; CM.openPreview({ ...p.sessions[0], items: ['jacks'], rounds: 1, noWarm: true, slot: 0, week: p.week }); });
+    await page.clock.runFor(180000);                // minuit passe avant de lancer
+    await page.click('[data-test=start]');
+    await tap(page, '[data-test=gear-go]');
+    await runToEnd(page);
+    await page.click('[data-test=save]');
+    const s = await state(page);
+    assert.deepEqual([s.history[0].slot, s.history[0].extra], [null, true]);
+    await page.click('[data-test=home]');
+    assert.equal(await page.locator('.badge.done').count(), 0);
+    assert.equal(await page.locator('[data-test=week]').innerText(), '1 / 3 séances');
+    assert.deepEqual(errors, []); await ctx.close();
   });
 });
