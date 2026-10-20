@@ -35,22 +35,38 @@ et termine chaque tâche par ce qu'il doit faire (ex. « clique sur Create PR pu
 
 ## Comment marche l'app (repères dans `index.html`)
 
-- `EXERCISES` : catalogue (type `reps` ou `time`, objectif de départ, haltère de départ,
-  `sides` = de chaque côté, `pace` = secondes estimées par répétition, `warm` = échauffement).
-- `SESSIONS` : séances (liste d'exercices, nombre de tours, repos). `mini: true` = ne compte
-  pas dans l'objectif de 3 séances par semaine.
+- `EXERCISES` : catalogue (~55 exercices). Type `reps` ou `time`, objectif de départ (`start`),
+  haltère de départ (`weight`), zone(s) `z` (`bas` / `haut` / `abdos` / `cardio`), `sides` = de chaque
+  côté, `pace` = secondes par répétition, `floor` = au sol, `hard` = effort intense,
+  `gear` = chevillères, `warm` = échauffement (jamais ajusté ni stocké).
+- `WARMUPS` : échauffements (~2 min 15) par zone. `RECIPES` : les 12 séances (muscu / cardio),
+  format `circuit` (tours), `pyramid` (paliers 60→100→60 %, pauses en pyramide) ou `tabata`
+  (8 × 20 s / 10 s). `slots` = zones dans lesquelles l'app choisit les exercices.
+- `CYCLE` : programme sur 4 semaines (3 séances, muscu/cardio en alternance). `ensurePlan()` génère
+  la semaine (stockée dans `state.plan`, stable toute la semaine). `makeSession()` choisit les exercices
+  faits il y a le plus longtemps (`state.ex[id].last`) et règle tours/paliers pour viser ~20 min.
+- Séances en plus : `EXTRA_THEMES` (bouton « + Séance en plus »), comptent dans la semaine.
+- `REST` + `restFor()` : pauses (muscu 15 s, cardio 10 s, +5/+10 s pour changer d'haltère, mettre
+  les chevillères, passer au sol, après un effort long/intense ; plafonds 25/20 s).
+- `FEEL` : forme du jour choisie sur l'écran matériel (fatiguée −15 % et pauses ×1,25, en forme +10 %).
+  N'affecte que la séance du jour, jamais les objectifs de base.
 - `adjust()` : la règle d'ajustement, exercice par exercice, appliquée à l'enregistrement :
   Trop dur −15 %, Trop facile +15 %, 2 « OK » de suite +5 %, pas de réponse = rien.
   Au moins ±1 répétition ou ±5 s. Bornes 5–30 répétitions et 15–60 s. Au max : haltère
   +1 kg (max 3 kg, elle a 1, 2 et 3 kg) et objectif ramené à 20 répétitions.
-- Moteur de séance : `buildPlan()` → étapes `ready` / `work` / `rest`, chrono basé sur
-  `Date.now()` (fiable même si l'écran se met en veille), `tick()` toutes les 200 ms.
+- Motivation, tout recalculé depuis l'historique : points (`sessionPoints`, `totalPoints`), `LEVELS`,
+  `formeIndex()` (100 + 1 point par 10 % de progrès sur un exercice, valeur gardée dans chaque séance
+  de l'historique pour la courbe), `streak()` (semaines d'affilée à 3 séances).
+- Moteur de séance : `buildPlan()` → étapes `gear` (matériel + forme du jour) / `ready` / `work` / `rest`,
+  chrono basé sur `Date.now()` (fiable même si l'écran se met en veille), `tick()` toutes les 200 ms.
 - Sons (Web Audio), voix (`speechSynthesis`), vibration, écran allumé (Wake Lock) :
   tous dans des `try/catch`, l'app doit marcher sans eux.
+- Champs ajoutés en v2 (via `normalize()`) : `ex[id].last`, `plan`, et dans l'historique `kind`,
+  `extra`, `week`, `slot`, `feel`, `forme`. Les anciennes données et sauvegardes restent valides.
 
 ## Avant de pousser
 
-1. `npm install` puis `npm test` → les 34+ tests doivent passer.
+1. `npm install` puis `npm test` → les 51+ tests doivent passer.
    (Si `npm install` échoue, essaie quand même `npm test` : le test retrouve un Playwright
    préinstallé. Si Chromium manque : `npx playwright install chromium`. Si rien ne marche,
    dis-le clairement plutôt que de sauter les tests.)
@@ -69,6 +85,5 @@ Sinon, demande-lui confirmation avant de merger.
 
 ## Idées déjà évoquées pour la suite
 
-- Choisir la durée de la séance (15 / 20 / 30 min) avec génération automatique.
 - Noter la course de 5 km hebdomadaire dans l'historique.
-- Série de semaines où l'objectif de 3 séances est atteint.
+- Choisir la durée de la séance (15 / 20 / 30 min) : `makeSession()` vise déjà une durée (`TARGET_SEC`).
